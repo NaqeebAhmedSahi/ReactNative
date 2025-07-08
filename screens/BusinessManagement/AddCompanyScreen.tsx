@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, Alert, ScrollView,
+  View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, Image
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
@@ -11,6 +11,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import RNFS from 'react-native-fs';
 import { commonStyles } from '../../styles/commonStyles';
+import Toast from 'react-native-toast-message';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AddCompany'>;
 
@@ -25,49 +26,57 @@ export default function AddCompany({ navigation }: Props) {
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-const handleSelectLogo = () => {
-  launchImageLibrary({ mediaType: 'photo' }, async (response) => {
-    if (!response.didCancel && !response.errorCode && response.assets?.[0]?.uri) {
-      const originalPath = response.assets[0].uri;
+  const showToast = (type: 'success' | 'error', text1: string, text2?: string) => {
+    Toast.show({
+      type,
+      text1,
+      text2,
+      position: 'top',
+      visibilityTime: 3000,
+    });
+  };
 
-      try {
-        // 1. Create full folder path: /DocumentDirectoryPath/images/company
-        const baseDir = `${RNFS.DocumentDirectoryPath}/images/company`;
+  const handleSelectLogo = () => {
+    launchImageLibrary({ mediaType: 'photo' }, async (response) => {
+      if (!response.didCancel && !response.errorCode && response.assets?.[0]?.uri) {
+        const originalPath = response.assets[0].uri;
 
-        // 2. Ensure directory exists
-        const dirExists = await RNFS.exists(baseDir);
-        if (!dirExists) {
-          await RNFS.mkdir(baseDir);
+        try {
+          const baseDir = `${RNFS.DocumentDirectoryPath}/images/company`;
+          const dirExists = await RNFS.exists(baseDir);
+          if (!dirExists) {
+            await RNFS.mkdir(baseDir);
+          }
+
+          const fileName = `company_logo_${Date.now()}.jpg`;
+          const newPath = `${baseDir}/${fileName}`;
+          await RNFS.copyFile(originalPath, newPath);
+
+          const fileUri = 'file://' + newPath;
+          setCompanyLogo(fileUri);
+          console.log("✅ Image saved to:", fileUri);
+        } catch (err) {
+          console.error('❌ Image save error:', err);
+          showToast('error', 'Image Error', 'Failed to save image locally');
         }
-
-        // 3. Define new file path
-        const fileName = `company_logo_${Date.now()}.jpg`;
-        const newPath = `${baseDir}/${fileName}`;
-
-        // 4. Copy image to that path
-        await RNFS.copyFile(originalPath, newPath);
-
-        const fileUri = 'file://' + newPath;
-        setCompanyLogo(fileUri);
-
-        // 5. Log path for confirmation
-        console.log("✅ Image saved to:", fileUri);
-      } catch (err) {
-        console.error('❌ Image save error:', err);
-        Alert.alert('Error', 'Failed to save image locally.');
       }
-    }
-  });
-};
+    });
+  };
 
   const handleAddCompany = async () => {
     if (!companyName || !businessType || !contactInfo || !location || !pin) {
-      Alert.alert('Error', 'Please fill all required fields');
+      showToast('error', 'Missing Fields', 'Please fill all required fields');
       return;
     }
 
-    if (pin.length < 4) {
-      Alert.alert('Error', 'PIN must be at least 4 characters');
+    if (pin.length < 4 || pin.length > 6) {
+      showToast('error', 'Invalid PIN', 'PIN must be between 4 and 6 characters');
+      return;
+    }
+
+    const contactRegex = /^\d{10,}$/;
+    if (!contactRegex.test(contactInfo)) {
+      showToast('error', 'Invalid Contact', 'Please enter a valid contact number');
       return;
     }
 
@@ -82,16 +91,16 @@ const handleSelectLogo = () => {
         pin,
         registrationNumber,
         taxId,
-        logoUrl: companyLogo, // local file path
+        logoUrl: companyLogo,
         createdAt: firestore.FieldValue.serverTimestamp(),
       };
 
       await firestore().collection('companies').add(companyData);
-      Alert.alert('Success', 'Company added successfully');
+      showToast('success', 'Company Added', 'The company was saved successfully');
       navigation.goBack();
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Failed to add company');
+      showToast('error', 'Error', 'Failed to add company');
     } finally {
       setLoading(false);
     }
@@ -101,7 +110,6 @@ const handleSelectLogo = () => {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Add Company</Text>
       <View style={styles.card}>
-        {/* Logo Picker */}
         <TouchableOpacity onPress={handleSelectLogo} style={styles.logoContainer}>
           {companyLogo ? (
             <Image source={{ uri: companyLogo }} style={styles.logoImage} />
@@ -113,7 +121,9 @@ const handleSelectLogo = () => {
           )}
         </TouchableOpacity>
 
-        <Text style={styles.sectionTitle}>Basic Information</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Basic Information</Text>
+        </View>
         <View style={styles.inputGroup}>
           <Icon name="domain" size={20} color="#4CAF50" style={styles.icon} />
           <TextInput
@@ -134,7 +144,9 @@ const handleSelectLogo = () => {
           />
         </View>
 
-        <Text style={styles.sectionTitle}>Contact Information</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Contact Information</Text>
+        </View>
         <View style={styles.inputGroup}>
           <Icon name="phone" size={20} color="#FF9800" style={styles.icon} />
           <TextInput
@@ -156,7 +168,9 @@ const handleSelectLogo = () => {
           />
         </View>
 
-        <Text style={styles.sectionTitle}>Legal Information</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Legal Information</Text>
+        </View>
         <View style={styles.inputGroup}>
           <Icon name="lock" size={20} color="#607D8B" style={styles.icon} />
           <TextInput
@@ -197,6 +211,7 @@ const handleSelectLogo = () => {
           icon={<Icon name="plus" size={18} color="white" />}
         />
       </View>
+      <Toast />
     </ScrollView>
   );
 }
@@ -224,15 +239,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowRadius: 6,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#444',
+  sectionHeader: {
     marginTop: 15,
     marginBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
     paddingBottom: 5,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#444',
   },
   inputGroup: {
     flexDirection: 'row',
